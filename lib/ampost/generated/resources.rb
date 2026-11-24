@@ -29,7 +29,7 @@ module Ampost
     class Posts < Resource
       # List posts
       #
-      # List your posts, newest first, optionally filtered by status, platform, platform set (posts with an account in it) or text.
+      # List your posts, newest created first, as full post objects (status, text, media, schedule, targets and `platformPosts`, the result per account). Use it to find posts: filter by `status`, `platform`, `platformSetId` (posts with an account in that set) or `search` (text match); filters combine. To read one post whose id you have, use posts_get; for views, likes and other metrics, use analytics_posts. Paginated with `limit` and `offset`; `pagination.hasMore` says whether another page exists. A key restricted to some platform sets sees only their posts. An unknown `platformSetId` is 404 PLATFORM_SET_NOT_FOUND.
       #
       # MCP tool: `posts_list`. Key scope: `posts:read`.
       #
@@ -37,10 +37,10 @@ module Ampost
       #
       # Returns one page; `each` walks every item across pages.
       #
-      # @param status [String, nil] Only posts with this status: `draft`, `scheduled`, `queued`, `posting`, `published`, `partial`, `failed`, `discarded`, `deleted`
-      # @param platform [String, nil] Only posts with an account on this platform. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
-      # @param platform_set_id [String, nil] Only posts with an account in this platform set
-      # @param search [String, nil] Case-insensitive match on the post text
+      # @param status [String, nil] Only posts with this status: `draft`, `scheduled`, `queued`, `posting`, `published`, `partial`, `failed`, `discarded`, `deleted`. Default: every status.
+      # @param platform [String, nil] Only posts with an account on this platform. Default: every platform. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
+      # @param platform_set_id [String, nil] Only posts with an account in this platform set (`id` from platform_sets_list). Default: every set the key can see.
+      # @param search [String, nil] Only posts whose main text contains this, case-insensitive, e.g. `launch`
       # @param limit [Integer, nil] Page size, 1-100. Default 20.
       # @param offset [Integer, nil] Number of items to skip. Default 0.
       # @param options [Hash] `timeout:`, `max_retries:` and `extra_headers:` for this call.
@@ -128,7 +128,7 @@ module Ampost
 
       # Get a post
       #
-      # Get one post with its result per account (`platformPosts`).
+      # Get one post by id: its status, text, media, schedule, targets, options and `platformPosts`, one entry per account with that account's status, platform post id, `publishedUrl`, `error` or `notice`, and its first comment and thread results. Use it to follow a post you know the id of, such as after posts_create or posts_publish, or to see why an account failed; use posts_list to find posts by status, platform, set or text, and analytics_posts for metrics. 404 POST_NOT_FOUND when no post with this id is yours, or the key cannot see any of its platform sets.
       #
       # MCP tool: `posts_get`. Key scope: `posts:read`.
       #
@@ -143,7 +143,7 @@ module Ampost
 
       # Update a post
       #
-      # Change a draft or scheduled post. Send only the fields to change; `media` and `targets` replace the whole list (accounts the post keeps keep their results). `options` is merged per platform: each `options.<platform>` you send replaces that platform's options as a whole, `null` removes them, and other platforms keep theirs. Set `scheduledFor` to null to turn a scheduled post back into a draft. To change the text of a published post, use posts_edit_published.
+      # Change a draft or scheduled post. Send only the fields to change; `media` and `targets` replace the whole list (accounts the post keeps keep their results). `options` is merged per platform: each `options.<platform>` you send replaces that platform's options as a whole, `null` removes them, and other platforms keep theirs. Set `scheduledFor` to null to turn a scheduled post back into a draft. To change the text of a published post, use posts_edit_published. Returns the updated post. 404 POST_NOT_FOUND for an id that is not yours; 409 INVALID_STATUS_TRANSITION unless the post is a draft, scheduled or queued.
       #
       # MCP tool: `posts_update`. Key scope: `posts:write`.
       #
@@ -168,7 +168,7 @@ module Ampost
 
       # Delete a post
       #
-      # Discard a post that has not been published, including a scheduled one. The post stays readable with status `discarded`, and its media in Ampost storage is deleted. To take a published post down from the platforms, use posts_unpublish.
+      # Discard a post that has not been published, including a scheduled one. The post stays readable with status `discarded`, and its media in Ampost storage is deleted. To take a published post down from the platforms, use posts_unpublish. Returns the discarded post. 404 POST_NOT_FOUND for an id that is not yours; 409 INVALID_STATUS_TRANSITION for a post that is posting, published, discarded or deleted.
       #
       # MCP tool: `posts_delete`. Key scope: `posts:write`.
       #
@@ -183,7 +183,7 @@ module Ampost
 
       # Publish a post now
       #
-      # Publish a draft or scheduled post to all its accounts now. Check `platformPosts` for each account's result; an account with a video may stay `processing` (the platform is still processing it) for a few minutes before it is `published`.
+      # Publish a draft or scheduled post to all its accounts now. Check `platformPosts` for each account's result; an account with a video may stay `processing` (the platform is still processing it) for a few minutes before it is `published`; follow it with posts_get. To publish later, set `scheduledFor` with posts_update instead; to publish again to accounts that failed, use posts_retry. 404 POST_NOT_FOUND for an id that is not yours; 409 INVALID_STATUS_TRANSITION for a post that is posting, published, discarded or deleted.
       #
       # MCP tool: `posts_publish`. Key scope: `posts:write`.
       #
@@ -201,7 +201,7 @@ module Ampost
 
       # Unpublish a post
       #
-      # Take a published post down from the platforms: every account where it is published, or only the given `accountIds` (from `platformPosts[].accountId`). Each account's result is in `platformPosts`: `deleted`, or still `published` with `notice` saying why (`UNPUBLISH_NOT_SUPPORTED` on Instagram and TikTok, which have no delete API; the platform's own refusal otherwise, such as Telegram's 48-hour limit for bots). The post becomes `deleted` once no account has it; it stays readable in Ampost. YouTube deletes count in the channel's daily budget of edits and deletes (10, 3 on Free; `notice` `RATE_LIMITED` past it). Call platforms_list for `unpublish.supported` per platform. Deleting from X costs X units like a post.
+      # Take a published post down from the platforms: every account where it is published, or only the given `accountIds` (from `platformPosts[].accountId`). Each account's result is in `platformPosts`: `deleted`, or still `published` with `notice` saying why (`UNPUBLISH_NOT_SUPPORTED` on Instagram and TikTok, which have no delete API; the platform's own refusal otherwise, such as Telegram's 48-hour limit for bots). The post becomes `deleted` once no account has it; it stays readable in Ampost. YouTube deletes count in the channel's daily budget of edits and deletes (10, 3 on Free; `notice` `RATE_LIMITED` past it). Call platforms_list for `unpublish.supported` per platform. Deleting from X costs X units like a post. To discard a post that is not published yet, use posts_delete. 404 POST_NOT_FOUND for an id that is not yours; 409 INVALID_STATUS_TRANSITION when no given account has it published.
       #
       # MCP tool: `posts_unpublish`. Key scope: `posts:write`.
       #
@@ -218,7 +218,7 @@ module Ampost
 
       # Edit a published post's text
       #
-      # Replace the text of a published post on the platforms: every account where it is published, or only the given `accountIds` (from `platformPosts[].accountId`). Text only; media and links stay. Each account's result is in `platformPosts`: an edited account's `text` holds the new text, and an account the platform refused keeps its text with `notice` (`EDIT_NOT_SUPPORTED` on Instagram, Threads, TikTok, Bluesky and X, and on Facebook stories; the platform's own refusal otherwise). Facebook edits only posts Ampost published; a Telegram caption under media stays limited to 1024 characters. YouTube and Pinterest replace the video or Pin description. YouTube edits and deletes share a budget of 10 a day per channel (3 on Free); past it the account gets `notice` `RATE_LIMITED`. Call platforms_list for `editPublished.supported` per platform. To change a draft or scheduled post, use posts_update.
+      # Replace the text of a published post on the platforms: every account where it is published, or only the given `accountIds` (from `platformPosts[].accountId`). Text only; media and links stay. Each account's result is in `platformPosts`: an edited account's `text` holds the new text, and an account the platform refused keeps its text with `notice` (`EDIT_NOT_SUPPORTED` on Instagram, Threads, TikTok, Bluesky and X, and on Facebook stories; the platform's own refusal otherwise). Facebook edits only posts Ampost published; a Telegram caption under media stays limited to 1024 characters. YouTube and Pinterest replace the video or Pin description. YouTube edits and deletes share a budget of 10 a day per channel (3 on Free); past it the account gets `notice` `RATE_LIMITED`. Call platforms_list for `editPublished.supported` per platform. To change a draft or scheduled post, use posts_update. 404 POST_NOT_FOUND for an id that is not yours; 409 INVALID_STATUS_TRANSITION when no given account has it published.
       #
       # MCP tool: `posts_edit_published`. Key scope: `posts:write`.
       #
@@ -236,7 +236,7 @@ module Ampost
 
       # Retry failed accounts
       #
-      # Publish again to the accounts that failed, or only to the given `accountIds` (from `platformPosts[].accountId`). Ampost already retries retryable failures (rate limits, timeouts, platform errors) by itself, up to 5 attempts with backoff; an account waiting for that shows `pending` with `nextAttemptAt`. Call this for an account that is `failed`, after fixing the cause. It starts `attempts` again from 0. A published account whose first comment failed (`platformPosts[].firstComment.status` failed) posts only the comment again, without publishing the post twice or counting it again. An account whose thread stopped at a failed item continues the thread from that item, without publishing the post or the earlier items again.
+      # Publish again to the accounts that failed, or only to the given `accountIds` (from `platformPosts[].accountId`). Ampost already retries retryable failures (rate limits, timeouts, platform errors) by itself, up to 5 attempts with backoff; an account waiting for that shows `pending` with `nextAttemptAt`. Call this for an account that is `failed`, after fixing the cause. It starts `attempts` again from 0. A published account whose first comment failed (`platformPosts[].firstComment.status` failed) posts only the comment again, without publishing the post twice or counting it again. An account whose thread stopped at a failed item continues the thread from that item, without publishing the post or the earlier items again. To publish a draft or scheduled post, use posts_publish. 404 POST_NOT_FOUND for an id that is not yours; 409 INVALID_STATUS_TRANSITION unless the post is `partial` or `failed` (or only first comments failed).
       #
       # MCP tool: `posts_retry`. Key scope: `posts:write`.
       #
@@ -293,7 +293,7 @@ module Ampost
     class Accounts < Resource
       # List social accounts
       #
-      # List your social accounts, optionally only one platform or one platform set. `status` defaults to `active`, the accounts that can publish; pass `revoked` for disconnected accounts or `all` for both. The `active` total for a set equals that set's `accountCount` in platform_sets_list. `health` says whether each account can publish (`canPost`), whether only a reconnect helps (`needsReconnect`), and why (`issues[]` with codes such as `TOKEN_EXPIRED` or `MISSING_SCOPE:w_member_social`). Fix with accounts_connect and the account's id as `accountId`. `platformMetadata` has public per-platform details, such as the TikTok creator's allowed privacy levels.
+      # List your social accounts, optionally only one platform or one platform set. `status` defaults to `active`, the accounts that can publish; pass `revoked` for disconnected accounts or `all` for both. The `active` total for a set equals that set's `accountCount` in platform_sets_list. `health` says whether each account can publish (`canPost`), whether only a reconnect helps (`needsReconnect`), and why (`issues[]` with codes such as `TOKEN_EXPIRED` or `MISSING_SCOPE:w_member_social`). Fix with accounts_connect and the account's id as `accountId`. `platformMetadata` has public per-platform details, such as the TikTok creator's allowed privacy levels. Use it to see what a user can post to or to find an account id; use accounts_get to re-check one account whose id you have, and platform_sets_list for the sets themselves. Paginated with `limit` and `offset`. A key restricted to some sets sees only their accounts; an unknown `platformSetId` is 404 PLATFORM_SET_NOT_FOUND.
       #
       # MCP tool: `accounts_list`. Key scope: `accounts:read`.
       #
@@ -301,8 +301,8 @@ module Ampost
       #
       # Returns one page; `each` walks every item across pages.
       #
-      # @param platform [String, nil] Only accounts on this platform. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
-      # @param platform_set_id [String, nil] Only accounts in this platform set
+      # @param platform [String, nil] Only accounts on this platform. Default: every platform. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
+      # @param platform_set_id [String, nil] Only accounts in this platform set (`id` from platform_sets_list). Default: every set the key can see.
       # @param status [String, nil] `active` (default): accounts that can publish. `revoked`: disconnected accounts. `all`: both.
       # @param limit [Integer, nil] Page size, 1-100. Default 20.
       # @param offset [Integer, nil] Number of items to skip. Default 0.
@@ -314,7 +314,7 @@ module Ampost
 
       # Get a connected account
       #
-      # Get one social account by id, including revoked ones (`status: revoked`). `health`: `canPost`, `needsReconnect` and `issues[]` (codes such as `ACCOUNT_REVOKED`, `TOKEN_EXPIRED`, `MISSING_SCOPE:<scope>`, each with a message to relay). When `needsReconnect` is true, call accounts_connect with `accountId` set to this id; the account keeps its id. `platformMetadata` has public per-platform details.
+      # Get one social account by id, including revoked ones (`status: revoked`). `health`: `canPost`, `needsReconnect` and `issues[]` (codes such as `ACCOUNT_REVOKED`, `TOKEN_EXPIRED`, `MISSING_SCOPE:<scope>`, each with a message to relay). When `needsReconnect` is true, call accounts_connect with `accountId` set to this id; the account keeps its id. `platformMetadata` has public per-platform details. Use it to check one account before posting or after a reconnect; use accounts_list to find accounts by platform, set or status. 404 ACCOUNT_NOT_FOUND when no account with this id is yours or the key is restricted to other sets.
       #
       # MCP tool: `accounts_get`. Key scope: `accounts:read`.
       #
@@ -437,7 +437,7 @@ module Ampost
     class PlatformSets < Resource
       # List platform sets
       #
-      # List your platform sets with their active account counts, default set first. `accountCount` counts only active accounts, the same ones accounts_list returns by default; revoked accounts are not counted. A platform set groups at most one account per platform; every post targets one set.
+      # List your platform sets, default set first: each with its `id`, `name`, `isDefault` and `accountCount`. A platform set groups at most one account per platform (for example one brand's Instagram, LinkedIn and X); posts, queues and connections target a set by `id`. Use this to find a set's id or to pick a set with the user; use platform_sets_get to re-read one set whose id you have, and accounts_list with `platformSetId` for the accounts in a set. `accountCount` counts only active accounts, the same ones accounts_list returns by default; revoked accounts are not counted. Paginated with `limit` and `offset`. A key restricted to some sets sees only those.
       #
       # MCP tool: `platform_sets_list`. Key scope: `accounts:read`.
       #
@@ -455,7 +455,7 @@ module Ampost
 
       # Create a platform set
       #
-      # Create an empty platform set. You can have at most 20 sets.
+      # Create an empty platform set with this name and return it. Add accounts to it with accounts_connect and its `platformSetId`; to rename a set, use platform_sets_update. You can have at most 20 sets (409 PLATFORM_SET_LIMIT_REACHED). A key restricted to some sets cannot create one (403 PLATFORM_SET_NOT_ALLOWED).
       #
       # MCP tool: `platform_sets_create`. Key scope: `accounts:write`.
       #
@@ -474,7 +474,7 @@ module Ampost
 
       # Get a platform set
       #
-      # Get one platform set with its active account count (revoked accounts are not counted).
+      # Get one platform set by id: `name`, `isDefault`, `accountCount` (active accounts only; revoked ones are not counted) and its timestamps. Use it when you have the id, for example to check a set still exists or its account count before posting to it; use platform_sets_list to find a set or see all of them, and accounts_list with `platformSetId` for the accounts themselves. 404 PLATFORM_SET_NOT_FOUND when no set with this id is yours or the key is restricted to other sets.
       #
       # MCP tool: `platform_sets_get`. Key scope: `accounts:read`.
       #
@@ -489,7 +489,7 @@ module Ampost
 
       # Rename a platform set
       #
-      # Rename a platform set, including the default set.
+      # Rename a platform set, including the default set, and return it. Only the name changes: accounts, posts and the queue stay. 404 PLATFORM_SET_NOT_FOUND for an unknown id; 403 PLATFORM_SET_NOT_ALLOWED for a set the key is restricted from.
       #
       # MCP tool: `platform_sets_update`. Key scope: `accounts:write`.
       #
@@ -521,7 +521,7 @@ module Ampost
 
       # Get a posting queue
       #
-      # Get the posting queue of a platform set. A set without a saved queue answers with no slots in UTC. Each platform set has one queue: weekly slots (weekday and HH:MM) in an IANA time zone, which follow its daylight saving changes. posts_create with `useQueue: true` schedules the post in the set's next free slot. A slot is taken while a queued post is scheduled at its time; rescheduling, publishing or deleting the post frees it.
+      # Get a platform set's queue settings: its `timezone` and weekly `slots` (weekday and HH:MM), sorted by weekday and time. A set without a saved queue answers with no slots in UTC (`updatedAt` null). Use it to read or show the weekly pattern before changing it with queue_update; to see the actual upcoming dates and which are free or taken by a post, use queue_slots. 404 PLATFORM_SET_NOT_FOUND when the set is not yours or the key is restricted to other sets. Each platform set has one queue: weekly slots (weekday and HH:MM) in an IANA time zone, which follow its daylight saving changes. posts_create with `useQueue: true` schedules the post in the set's next free slot. A slot is taken while a queued post is scheduled at its time; rescheduling, publishing or deleting the post frees it.
       #
       # MCP tool: `queue_get`. Key scope: `posts:read`.
       #
@@ -536,7 +536,7 @@ module Ampost
 
       # Update a posting queue
       #
-      # Set the time zone or the weekly slots of a platform set's queue; `slots` replaces the whole list. Queues need the Pro plan or above (403 UPGRADE_REQUIRED). Posts already in the queue keep their time. Each platform set has one queue: weekly slots (weekday and HH:MM) in an IANA time zone, which follow its daylight saving changes. posts_create with `useQueue: true` schedules the post in the set's next free slot. A slot is taken while a queued post is scheduled at its time; rescheduling, publishing or deleting the post frees it.
+      # Set the time zone or the weekly slots of a platform set's queue; `slots` replaces the whole list. Queues need the Pro plan or above (403 UPGRADE_REQUIRED). Posts already in the queue keep their time. Returns the saved queue; omitted fields keep their value. 403 PLATFORM_SET_NOT_ALLOWED for a set the key is restricted from; 404 PLATFORM_SET_NOT_FOUND for an unknown set. Each platform set has one queue: weekly slots (weekday and HH:MM) in an IANA time zone, which follow its daylight saving changes. posts_create with `useQueue: true` schedules the post in the set's next free slot. A slot is taken while a queued post is scheduled at its time; rescheduling, publishing or deleting the post frees it.
       #
       # MCP tool: `queue_update`. Key scope: `posts:write`.
       #
@@ -554,7 +554,7 @@ module Ampost
 
       # Preview queue slots
       #
-      # The queue's next slot times from now on, each with the queued post holding it (`postId`, null when free). With `filter: free` the first slot is where posts_create with `useQueue` puts the next post. Each platform set has one queue: weekly slots (weekday and HH:MM) in an IANA time zone, which follow its daylight saving changes. posts_create with `useQueue: true` schedules the post in the set's next free slot. A slot is taken while a queued post is scheduled at its time; rescheduling, publishing or deleting the post frees it.
+      # The queue's next slot times from now on, as ISO timestamps (`scheduledFor`), each with the queued post holding it (`postId`, null when free); empty when the queue has no slots. With `filter: free` the first slot is where posts_create with `useQueue` puts the next post. Use it to tell the user when a queued post would go out or which times are taken; to read or change the weekly pattern itself, use queue_get and queue_update. `count` sets how many slots (1-50, default 10). 404 PLATFORM_SET_NOT_FOUND when the set is not yours or the key is restricted to other sets. Each platform set has one queue: weekly slots (weekday and HH:MM) in an IANA time zone, which follow its daylight saving changes. posts_create with `useQueue: true` schedules the post in the set's next free slot. A slot is taken while a queued post is scheduled at its time; rescheduling, publishing or deleting the post frees it.
       #
       # MCP tool: `queue_slots`. Key scope: `posts:read`.
       #
@@ -574,7 +574,7 @@ module Ampost
     class Analytics < Resource
       # Post analytics
       #
-      # Metrics of your published posts, newest first: one `platformPosts` entry per account the post went to, with views, reach, likes, comments, shares and saves (null when the platform does not report one). Pass `postId` for one post. `analyticsStatus` says why an entry has no metrics. Analytics cover Facebook Pages, Instagram, Threads, TikTok, Bluesky, YouTube and Pinterest accounts (on YouTube and Pinterest only posts published through Ampost; LinkedIn once its API access is approved), X accounts that opted in with accounts_set_analytics (Max and Scale; only posts published through Ampost), and Telegram followers (no post metrics). Discord has no analytics: asking for it fails with 422 `ANALYTICS_NOT_AVAILABLE_ON_PLATFORM`. When none of the matching accounts has analytics enabled the call fails with 403 `ANALYTICS_NOT_ENABLED` (its `details.accounts` say why per account). Ampost reads analytics in the background and serves the stored numbers: each account about hourly (daily on the Free plan), a post's metrics hourly in its first 48 hours, every 6 hours up to 14 days and daily up to 90 days. X posts are read daily in their first 3 days and weekly up to 29 days, which costs the plan's X units. Meta itself can lag 24-48 hours. `syncedAt` says when each number was read.
+      # Metrics of your published posts, newest first: one `platformPosts` entry per account the post went to, with views, reach, likes, comments, shares and saves (null when the platform does not report one). Pass `postId` for one post. `analyticsStatus` says why an entry has no metrics. Use it for per-post numbers; for totals per account over a date range use analytics_overview, for follower counts over time analytics_followers, and for a post's publish status posts_get. Filter by `postId`, `platform`, `platformSetId` or `accountId`; paginated with `limit` and `offset`. 404 POST_NOT_FOUND or ACCOUNT_NOT_FOUND for an id that is not yours. Analytics cover Facebook Pages, Instagram, Threads, TikTok, Bluesky, YouTube and Pinterest accounts (on YouTube and Pinterest only posts published through Ampost; LinkedIn once its API access is approved), X accounts that opted in with accounts_set_analytics (Max and Scale; only posts published through Ampost), and Telegram followers (no post metrics). Discord has no analytics: asking for it fails with 422 `ANALYTICS_NOT_AVAILABLE_ON_PLATFORM`. When none of the matching accounts has analytics enabled the call fails with 403 `ANALYTICS_NOT_ENABLED` (its `details.accounts` say why per account). Ampost reads analytics in the background and serves the stored numbers: each account about hourly (daily on the Free plan), a post's metrics hourly in its first 48 hours, every 6 hours up to 14 days and daily up to 90 days. X posts are read daily in their first 3 days and weekly up to 29 days, which costs the plan's X units. Meta itself can lag 24-48 hours. `syncedAt` says when each number was read.
       #
       # MCP tool: `analytics_posts`. Key scope: `analytics:read`.
       #
@@ -582,10 +582,10 @@ module Ampost
       #
       # Returns one page; `each` walks every item across pages.
       #
-      # @param post_id [String, nil] Only this post
-      # @param platform [String, nil] Only accounts on this platform. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
-      # @param platform_set_id [String, nil] Only accounts in this platform set
-      # @param account_id [String, nil] Only this account
+      # @param post_id [String, nil] Only this post (`id` from posts_list). Default: every published post.
+      # @param platform [String, nil] Only accounts on this platform. Default: every platform with analytics. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
+      # @param platform_set_id [String, nil] Only accounts in this platform set (`id` from platform_sets_list). Default: every set the key can see.
+      # @param account_id [String, nil] Only this account (`id` from accounts_list). Default: every matching account.
       # @param limit [Integer, nil] Page size, 1-100. Default 20.
       # @param offset [Integer, nil] Number of items to skip. Default 0.
       # @param options [Hash] `timeout:`, `max_retries:` and `extra_headers:` for this call.
@@ -596,7 +596,7 @@ module Ampost
 
       # Analytics overview
       #
-      # Per account and in total, for posts published between `from` and `to` (UTC days, default the last 30): post count, summed views, reach, likes, comments, shares and saves, followers and their change, and sync state. These are the dashboard's numbers. `unavailableAccounts` lists matching accounts without analytics and why. Analytics cover Facebook Pages, Instagram, Threads, TikTok, Bluesky, YouTube and Pinterest accounts (on YouTube and Pinterest only posts published through Ampost; LinkedIn once its API access is approved), X accounts that opted in with accounts_set_analytics (Max and Scale; only posts published through Ampost), and Telegram followers (no post metrics). Discord has no analytics: asking for it fails with 422 `ANALYTICS_NOT_AVAILABLE_ON_PLATFORM`. When none of the matching accounts has analytics enabled the call fails with 403 `ANALYTICS_NOT_ENABLED` (its `details.accounts` say why per account). Ampost reads analytics in the background and serves the stored numbers: each account about hourly (daily on the Free plan), a post's metrics hourly in its first 48 hours, every 6 hours up to 14 days and daily up to 90 days. X posts are read daily in their first 3 days and weekly up to 29 days, which costs the plan's X units. Meta itself can lag 24-48 hours. `syncedAt` says when each number was read.
+      # Per account and in total, for posts published between `from` and `to` (UTC days, default the last 30): post count, summed views, reach, likes, comments, shares and saves, followers and their change, and sync state. These are the dashboard's numbers. `unavailableAccounts` lists matching accounts without analytics and why. Use it for a summary or a period comparison (call it twice with different ranges); for each post's own metrics use analytics_posts, and for the day-by-day follower curve analytics_followers. Filter by `platform`, `platformSetId` or `accountId`; not paginated. A range longer than 90 days or with `from` after `to` is 400 VALIDATION_FAILED. Analytics cover Facebook Pages, Instagram, Threads, TikTok, Bluesky, YouTube and Pinterest accounts (on YouTube and Pinterest only posts published through Ampost; LinkedIn once its API access is approved), X accounts that opted in with accounts_set_analytics (Max and Scale; only posts published through Ampost), and Telegram followers (no post metrics). Discord has no analytics: asking for it fails with 422 `ANALYTICS_NOT_AVAILABLE_ON_PLATFORM`. When none of the matching accounts has analytics enabled the call fails with 403 `ANALYTICS_NOT_ENABLED` (its `details.accounts` say why per account). Ampost reads analytics in the background and serves the stored numbers: each account about hourly (daily on the Free plan), a post's metrics hourly in its first 48 hours, every 6 hours up to 14 days and daily up to 90 days. X posts are read daily in their first 3 days and weekly up to 29 days, which costs the plan's X units. Meta itself can lag 24-48 hours. `syncedAt` says when each number was read.
       #
       # MCP tool: `analytics_overview`. Key scope: `analytics:read`.
       #
@@ -604,9 +604,9 @@ module Ampost
       #
       # @param from [String, nil] First day (UTC), YYYY-MM-DD. Default: 29 days before `to`. At most 90 days with `to`.
       # @param to [String, nil] Last day (UTC), YYYY-MM-DD, included. Default: today.
-      # @param platform [String, nil] Only accounts on this platform. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
-      # @param platform_set_id [String, nil] Only accounts in this platform set
-      # @param account_id [String, nil] Only this account
+      # @param platform [String, nil] Only accounts on this platform. Default: every platform with analytics. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
+      # @param platform_set_id [String, nil] Only accounts in this platform set (`id` from platform_sets_list). Default: every set the key can see.
+      # @param account_id [String, nil] Only this account (`id` from accounts_list). Default: every matching account.
       # @param options [Hash] `timeout:`, `max_retries:` and `extra_headers:` for this call.
       # @return [Hash] The `AnalyticsOverview`.
       def get_overview(from: nil, to: nil, platform: nil, platform_set_id: nil, account_id: nil, **options)
@@ -615,7 +615,7 @@ module Ampost
 
       # Follower history
       #
-      # Follower count per account with one daily snapshot per day between `from` and `to` (UTC days, default the last 30). History starts when Ampost first read the account; a day without a snapshot is missing. Analytics cover Facebook Pages, Instagram, Threads, TikTok, Bluesky, YouTube and Pinterest accounts (on YouTube and Pinterest only posts published through Ampost; LinkedIn once its API access is approved), X accounts that opted in with accounts_set_analytics (Max and Scale; only posts published through Ampost), and Telegram followers (no post metrics). Discord has no analytics: asking for it fails with 422 `ANALYTICS_NOT_AVAILABLE_ON_PLATFORM`. When none of the matching accounts has analytics enabled the call fails with 403 `ANALYTICS_NOT_ENABLED` (its `details.accounts` say why per account). Ampost reads analytics in the background and serves the stored numbers: each account about hourly (daily on the Free plan), a post's metrics hourly in its first 48 hours, every 6 hours up to 14 days and daily up to 90 days. X posts are read daily in their first 3 days and weekly up to 29 days, which costs the plan's X units. Meta itself can lag 24-48 hours. `syncedAt` says when each number was read.
+      # Follower count per account with one daily snapshot per day between `from` and `to` (UTC days, default the last 30). History starts when Ampost first read the account; a day without a snapshot is missing. Use it to chart follower growth; for the start, end and change of a range in one number per account use analytics_overview, and for post metrics analytics_posts. Filter by `platform`, `platformSetId` or `accountId`; paginated by account with `limit` and `offset`. A range longer than 90 days or with `from` after `to` is 400 VALIDATION_FAILED. Analytics cover Facebook Pages, Instagram, Threads, TikTok, Bluesky, YouTube and Pinterest accounts (on YouTube and Pinterest only posts published through Ampost; LinkedIn once its API access is approved), X accounts that opted in with accounts_set_analytics (Max and Scale; only posts published through Ampost), and Telegram followers (no post metrics). Discord has no analytics: asking for it fails with 422 `ANALYTICS_NOT_AVAILABLE_ON_PLATFORM`. When none of the matching accounts has analytics enabled the call fails with 403 `ANALYTICS_NOT_ENABLED` (its `details.accounts` say why per account). Ampost reads analytics in the background and serves the stored numbers: each account about hourly (daily on the Free plan), a post's metrics hourly in its first 48 hours, every 6 hours up to 14 days and daily up to 90 days. X posts are read daily in their first 3 days and weekly up to 29 days, which costs the plan's X units. Meta itself can lag 24-48 hours. `syncedAt` says when each number was read.
       #
       # MCP tool: `analytics_followers`. Key scope: `analytics:read`.
       #
@@ -625,9 +625,9 @@ module Ampost
       #
       # @param from [String, nil] First day (UTC), YYYY-MM-DD. Default: 29 days before `to`. At most 90 days with `to`.
       # @param to [String, nil] Last day (UTC), YYYY-MM-DD, included. Default: today.
-      # @param platform [String, nil] Only accounts on this platform. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
-      # @param platform_set_id [String, nil] Only accounts in this platform set
-      # @param account_id [String, nil] Only this account
+      # @param platform [String, nil] Only accounts on this platform. Default: every platform with analytics. One of: `instagram`, `facebook`, `linkedin`, `tiktok`, `threads`, `twitter`, `discord`, `telegram`, `bluesky`, `youtube`, `pinterest`.
+      # @param platform_set_id [String, nil] Only accounts in this platform set (`id` from platform_sets_list). Default: every set the key can see.
+      # @param account_id [String, nil] Only this account (`id` from accounts_list). Default: every matching account.
       # @param limit [Integer, nil] Page size, 1-100. Default 20.
       # @param offset [Integer, nil] Number of items to skip. Default 0.
       # @param options [Hash] `timeout:`, `max_retries:` and `extra_headers:` for this call.
@@ -641,7 +641,7 @@ module Ampost
     class Webhooks < Resource
       # List webhooks
       #
-      # List your webhooks, oldest first. Secrets show only as `secretPreview`. Webhooks see every platform set, so keys restricted to some sets get 403 PLATFORM_SET_NOT_ALLOWED.
+      # List your webhooks, oldest first: each with its `url`, `events`, `enabled` state, failure count and `secretPreview` (the full secret is shown only by webhooks_create and a rotate). Use it to find a webhook id or check which events go where; use webhooks_get for one webhook you have the id of, and webhooks_deliveries_list for what was sent. Paginated with `limit` and `offset`. Webhooks see every platform set, so keys restricted to some sets get 403 PLATFORM_SET_NOT_ALLOWED.
       #
       # MCP tool: `webhooks_list`. Key scope: `webhooks:write`.
       #
@@ -680,7 +680,7 @@ module Ampost
 
       # Get a webhook
       #
-      # Get one webhook with its status and failure count. The secret shows only as `secretPreview`. Webhooks see every platform set, so keys restricted to some sets get 403 PLATFORM_SET_NOT_ALLOWED.
+      # Get one webhook by id with its `url`, `events`, `enabled` state, `disabledReason` and failure count. The secret shows only as `secretPreview`. Use it to check why a webhook stopped; use webhooks_list to find webhooks, and webhooks_deliveries_list for the delivery log. 404 WEBHOOK_NOT_FOUND for an id that is not yours. Webhooks see every platform set, so keys restricted to some sets get 403 PLATFORM_SET_NOT_ALLOWED.
       #
       # MCP tool: `webhooks_get`. Key scope: `webhooks:write`.
       #
@@ -716,7 +716,7 @@ module Ampost
 
       # Delete a webhook
       #
-      # Delete a webhook and its delivery log. Pending deliveries are not sent.
+      # Delete a webhook and its delivery log for good. Pending deliveries are not sent. To pause it instead, use webhooks_update with `enabled: false`. 404 WEBHOOK_NOT_FOUND for an id that is not yours. Webhooks see every platform set, so keys restricted to some sets get 403 PLATFORM_SET_NOT_ALLOWED.
       #
       # MCP tool: `webhooks_delete`. Key scope: `webhooks:write`.
       #
@@ -731,7 +731,7 @@ module Ampost
 
       # Send a test event
       #
-      # Send a signed `webhook.test` event to the webhook now, also when it is turned off, and return the delivery with your URL's response. One attempt, no retries.
+      # Send a signed `webhook.test` event to the webhook now, also when it is turned off, and return the delivery with your URL's response (status code and body). One attempt, no retries. Use it to check the URL and signature handling; to resend a real past event, use webhooks_redeliver. 404 WEBHOOK_NOT_FOUND for an id that is not yours. Webhooks see every platform set, so keys restricted to some sets get 403 PLATFORM_SET_NOT_ALLOWED.
       #
       # MCP tool: `webhooks_test`. Key scope: `webhooks:write`.
       #
@@ -746,7 +746,7 @@ module Ampost
 
       # List webhook deliveries
       #
-      # The webhook's delivery log, newest first: each event sent, its status, attempts, and the last response code and body. Kept for 30 days.
+      # The webhook's delivery log, newest first: each event sent, its status, attempts, and the last response code and body. Kept for 30 days. Use it to see what failed and why, then resend a delivery with webhooks_redeliver and its `id`. Paginated with `limit` and `offset`. 404 WEBHOOK_NOT_FOUND for an id that is not yours. Webhooks see every platform set, so keys restricted to some sets get 403 PLATFORM_SET_NOT_ALLOWED.
       #
       # MCP tool: `webhooks_deliveries_list`. Key scope: `webhooks:write`.
       #
@@ -765,7 +765,7 @@ module Ampost
 
       # Redeliver an event
       #
-      # Send a past delivery's event again now, with the same event id and body, as a new delivery (one attempt, also when the webhook is turned off). Returns the new delivery with your URL's response.
+      # Send a past delivery's event again now, with the same event id and body, as a new delivery (one attempt, also when the webhook is turned off). Returns the new delivery with your URL's response. Use it for events a failed or turned-off webhook missed (from webhooks_deliveries_list); for a synthetic test event use webhooks_test. 404 WEBHOOK_NOT_FOUND or DELIVERY_NOT_FOUND for ids that are not yours. Webhooks see every platform set, so keys restricted to some sets get 403 PLATFORM_SET_NOT_ALLOWED.
       #
       # MCP tool: `webhooks_redeliver`. Key scope: `webhooks:write`.
       #
