@@ -21,8 +21,6 @@ Or in your `Gemfile`:
 gem "ampost"
 ```
 
-Until the gem is on RubyGems, install it from this repo: `gem "ampost", github: "ampost-io/ampost-ruby"`.
-
 ## Quick start
 
 Create an API key in [Settings, API keys](https://ampost.io/app/settings/api-keys?ref=github), connect
