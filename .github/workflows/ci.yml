@@ -1,0 +1,53 @@
+# CI for this repo once it lives at github.com/ampost-io/ampost-ruby. While the code is in the Ampost
+# app repo (public-repos/ampost-ruby), the root workflow .github/workflows/public-repos.yml runs instead.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  generated-code:
+    name: Generated code matches openapi.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - run: ruby scripts/generate.rb
+      - name: Fail if the committed code is stale
+        run: git diff --exit-code || (echo "::error::Run ruby scripts/generate.rb and commit the result" && exit 1)
+
+  test:
+    name: Ruby ${{ matrix.ruby }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby: ["3.1", "3.3"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - run: bundle exec rake test
+      - run: gem build ampost.gemspec
+
+  smoke:
+    name: Smoke test against the real API
+    runs-on: ubuntu-latest
+    env:
+      AMPOST_API_KEY: ${{ secrets.AMPOST_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Smoke test (skipped without the AMPOST_API_KEY secret)
+        run: bundle exec ruby -Ilib -Itest test/smoke_test.rb --verbose

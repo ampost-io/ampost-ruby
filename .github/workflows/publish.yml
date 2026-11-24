@@ -1,0 +1,68 @@
+# Publishes to RubyGems with trusted publishing when a v<version> tag is pushed. The ampost repo's mirror
+# (scripts/mirror-public-repos.sh) pushes that tag when lib/ampost/version.rb gets a new version. Run it
+# by hand on a tag to retry.
+#
+# Off until the repository variable RUBYGEMS_PUBLISH_ENABLED is "true". Add this workflow as a trusted
+# publisher of the gem "ampost" on RubyGems.org first (repository ampost-io/ampost-ruby, workflow
+# publish.yml, environment "rubygems"); RubyGems accepts that before the gem exists ("pending trusted
+# publisher"). For that first push, the repository variable RUBYGEMS_OWNER_ID holds the ID of the
+# RubyGems.org account that will own the gem; later releases do not need it.
+name: Publish to RubyGems
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: vars.RUBYGEMS_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: rubygems
+    permissions:
+      id-token: write
+      # `rake release` (run by release-gem) pushes the version tag when a hand run on main has none yet.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: The tag matches lib/ampost/version.rb
+        run: |
+          version=$(ruby -e 'require_relative "lib/ampost/version"; print Ampost::VERSION')
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match lib/ampost/version.rb version $version"
+            exit 1
+          fi
+      - name: Skip a version that is already on RubyGems
+        id: published
+        run: |
+          version=$(ruby -e 'require_relative "lib/ampost/version"; print Ampost::VERSION')
+          status=$(curl -s -o /dev/null -w '%{http_code}' "https://rubygems.org/api/v2/rubygems/ampost/versions/$version.json")
+          if [ "$status" = 200 ]; then echo "ampost $version is on RubyGems already"; echo "skip=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.published.outputs.skip != 'true'
+        run: ruby scripts/generate.rb && git diff --exit-code
+      - if: steps.published.outputs.skip != 'true'
+        run: bundle exec rake test
+      - if: steps.published.outputs.skip != 'true'
+        uses: rubygems/release-gem@v1
+        with:
+          owner: ${{ vars.RUBYGEMS_OWNER_ID }}
+
+  # A GitHub Release for every version tag, so the repo shows its versions (GitHub SEO/GEO). Runs even
+  # while publishing is off; the notes are GitHub's generated list of changes since the last tag.
+  github-release:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
