@@ -4,9 +4,10 @@ require "json"
 require "minitest/autorun"
 require "ampost"
 
-# The real key for test/smoke_test.rb, read before the unit tests clear the environment.
-SMOKE_API_KEY = ENV.fetch("AMPOST_API_KEY", nil)
-SMOKE_BASE_URL = ENV.fetch("AMPOST_BASE_URL", nil)
+# The real key for test/smoke_test.rb, read before the unit tests clear the environment. An empty value
+# counts as unset: GitHub Actions sets a missing secret to "", which Ruby treats as true.
+SMOKE_API_KEY = ENV["AMPOST_API_KEY"].then { |v| v unless v.nil? || v.empty? }
+SMOKE_BASE_URL = ENV["AMPOST_BASE_URL"].then { |v| v unless v.nil? || v.empty? }
 
 # A mock API: answers each request with the next queued answer (a Response, an exception to raise, or a
 # lambda taking the request) and records the requests.
