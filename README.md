@@ -23,7 +23,7 @@ gem "ampost"
 
 ## Quick start
 
-Create an API key in [Settings, API keys](https://ampost.io/app/settings/api-keys?ref=github), connect
+Create an API key in [Setup → API keys](https://ampost.io/app/settings/api-keys?ref=github), connect
 Bluesky and Threads in the [dashboard](https://ampost.io/app?ref=github), then:
 
 ```ruby
